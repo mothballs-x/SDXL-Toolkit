@@ -22,7 +22,7 @@
     },
     "yogi-makeup": {
       "positive": {
-        "link": "https://civitai.com/api/download/models/889075?type=Model&format=SafeTensor"
+        "link": "https://civitai.com/api/download/models/889075?type=Model&format=SafeTensor",
         "token": "Stable-Yogis-Makeup-Enhancer-XL"
       },
       "negative": {
