@@ -1,0 +1,49 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="Annotator" enabled="true" level="ERROR" enabled_by_default="true" editorAttributes="ERRORS_ATTRIBUTES" />
+    <inspection_tool class="GrazieInspection" enabled="true" level="WARNING" enabled_by_default="true" editorAttributes="WARNING_ATTRIBUTES" />
+    <inspection_tool class="PyDunderSlotsInspection" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="PyPep8Inspection" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredErrors">
+        <list>
+          <option value="E501" />
+          <option value="E116" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyPep8NamingInspection" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredErrors">
+        <list>
+          <option value="N802" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyTypeCheckerInspection" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredIdentifiers">
+        <list>
+          <option value="random._sha512" />
+          <option value="json_test.usercheck" />
+          <option value="ship.rect" />
+          <option value="running_average.primer.send" />
+          <option value="learning_logs.models.Topic.objects" />
+          <option value="manager.Zipfile" />
+          <option value="zipfile.*" />
+          <option value="hyperparameter2.AnySample" />
+          <option value="kNN_algo.bisect" />
+          <option value="kNN_algo.AnySample" />
+          <option value="linked_lists.Node.*" />
+          <option value="linked_lists.PositionalList._Position.*" />
+          <option value="trees.trees.LinkedBinaryTree.add_root" />
+          <option value="trees.trees.LinkedBinaryTree.add_left" />
+          <option value="trees.trees.LinkedBinaryTree.add_right" />
+          <option value="StopIteration._value" />
+          <option value="typing.Iterator.throw" />
+          <option value="builtins.ascii.lowercaseletters" />
+          <option value="list.__setitem__" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
