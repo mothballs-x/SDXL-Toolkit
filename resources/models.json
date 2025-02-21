@@ -1,0 +1,27 @@
+{
+
+    "yogi": {
+             "babes_3": "John6666/babes-by-stable-yogi-xlv3-sdxl",
+             "babes_4": "John6666/babes-by-stable-yogi-ponyv4vaefix-sdxl",
+             "realism_3": "John6666/realism-by-stable-yogi-ponyv3vae-sdxl",
+             "real_illustrious_2.5": "John6666/realism-illustrious-by-stable-yogi-v25fp16-sdxl",
+             "real_illustrious_1.8": "John6666/realism-illustrious-by-stable-yogi-v18-sdxl",
+             "real_illustrious_3": "/content/drive/My Drive/checkpoints/realism_illustrious3.safetensors",
+             "illustrious_babes_1": "John6666/babes-illustrious-by-stable-yogi-v10fp16-sdxl"
+    },
+
+    "pony": {
+              "original": "https://huggingface.co/LyliaEngine/Pony_Diffusion_V6_XL/blob/main/ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
+              "realism": "https://huggingface.co/LyliaEngine/ponyRealism_v21MainVAE/blob/main/ponyRealism_v21MainVAE.safetensors"
+    },
+
+    "illustrious": {
+        "realism": "https://civitai.com/api/download/models/1347258?type=Model&format=SafeTensor&size=pruned&fp=fp16",
+        "pony_merge": "https://civitai.com/api/download/models/978143?type=Model&format=SafeTensor&size=pruned&fp=fp16"
+  },
+  
+  "juggernaut": {
+    "X": "https://civitai.com/api/download/models/456194?type=Model&format=SafeTensor&size=full&fp=fp16",
+    "XI": "https://civitai.com/api/download/models/782002?type=Model&format=SafeTensor&size=full&fp=fp16"
+  }
+}
