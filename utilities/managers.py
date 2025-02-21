@@ -120,10 +120,10 @@ class LoraManager:
             self.add_lora(path, name)
 
     class Lora:
-        def __init__(self, container, path: str, title: str, name: str, weight: float = 0.0):
+        def __init__(self, container, path: str, filename: str, name: str, weight: float = 0.0):
             self.container = container
             self.path = path
-            self.title = title
+            self.filename = filename
             self.name = name
             self.weight = float(weight)
             self.load_lora()
@@ -136,9 +136,11 @@ class LoraManager:
             """Load LoRA weights into pipeline"""
             self.container.pipeline.load_lora_weights(
                 self.path,
-                wieght_name=self.title,
                 adapter_name=self.name
                 )
+
+        def __repr__(self):
+            return f'Lora({self.name, self.weight}'
 
     def update_weights(self):
         """Apply updated weights to LoRAs in the pipeline"""
@@ -150,7 +152,6 @@ class LoraManager:
         """Add a LoRA either from a local file or from CivitAI"""
         if path.startswith("http"):
             model_number = path.split('/')[-1].split('?')[0]
-            print(f'Civitai Model Number for {name}: {model_number}')
             path = self.get_lora_from_link(model_number, name)  # Download LoRA from link
         else:
             path = Path(path)
@@ -159,7 +160,7 @@ class LoraManager:
             self.loras[name] = LoraManager.Lora(self, path, path.name, name, weight)
             self.update_weights()
         else:
-            print(f"[Warning] LoRA path '{path}' does not exist.")
+            print(f"⚠️ LoRA path '{path}' does not exist.")
 
     def delete_lora(self, names: Union[str, list]):
         """Remove a LoRA from the manager"""
@@ -177,7 +178,7 @@ class LoraManager:
 
     def list_loras(self):
         """Return all available LoRAs"""
-        return {lora.name: lora.title for lora in self.loras.values()}
+        return {lora.name: lora.weight for lora in self.loras.values()}
 
     def clear_loras(self):
         """Remove all LoRAs"""
@@ -203,7 +204,7 @@ class LoraManager:
             f.write(resp.content)  # Ensure binary mode is used
 
         if not lora_path.suffix == ".safetensors":
-            print(f"Warning: Downloaded file does not have a .safetensors extension: {lora_path}")
+            print(f"⚠️ Downloaded file does not have a .safetensors extension: {lora_path}")
 
         return lora_path
 
