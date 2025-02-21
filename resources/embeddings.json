@@ -9,27 +9,30 @@
         "link": "https://civitai.com/api/download/models/772342?type=Negative&format=Other",
         "token": "Stable_Yogis_PDXL_Negatives-neg"
       }
+    }
+  },
+  {"yogi-illustrious": {
+    "positive": {
+      "link": "https://civitai.com/api/download/models/1153237?type=Model&format=SafeTensor",
+      "token": "Stable_Yogis_Illustrious_Positives"
     },
-    "yogi-illustrious": {
-      "positive": {
-        "link": "https://civitai.com/api/download/models/1153237?type=Model&format=SafeTensor",
-        "token": "Stable_Yogis_Illustrious_Positives"
-      },
-      "negative": {
-        "link": "https://civitai.com/api/download/models/1153212?type=Negative&format=Other",
-        "token": "Stable_Yogis_Illustrious_Negatives-neg"
-      }
-    },
-    "yogi-makeup": {
+    "negative": {
+      "link": "https://civitai.com/api/download/models/1153212?type=Negative&format=Other",
+      "token": "Stable_Yogis_Illustrious_Negatives-neg"
+    }
+  }
+  },
+  {"yogi-makeup": {
       "positive": {
         "link": "https://civitai.com/api/download/models/889075?type=Model&format=SafeTensor",
         "token": "Stable-Yogis-Makeup-Enhancer-XL"
-      },
+    },
       "negative": {
         "link": "",
         "token": ""
       }
-    },
+    }
+  },
   {
     "Beyond-SDXL-v3": {
       "positive": {
