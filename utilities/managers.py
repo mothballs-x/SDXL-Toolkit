@@ -242,7 +242,14 @@ class ImageGenerator:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
 
-        noise = self.create_noise_img()
+        latent_noise = torch.randn(
+            (1, 4, self.config.height // 8, self.config.width // 8),
+            device=self.pipeline.device,
+            generator=generator,
+        )  # SDXL works in latent space, so we use scaled-down dimensions
+
+        # Step 2: Decode noise into an image using the pipeline’s VAE
+        noise_image = self.pipeline.vae.decode(latent_noise / 0.18215).sample
 
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
@@ -255,7 +262,8 @@ class ImageGenerator:
             height=self.config.height,
             num_inference_steps=self.config.steps[0],  # Use first step value
             guidance_scale=self.config.cfg,
-            image=noise,
+            image=noise_image,
+            strength=1.0,
             clip_skip=self.config.clip_skip,
         ).images
 
