@@ -247,10 +247,6 @@ class ImageGenerator:
         # Convert to PyTorch tensor and send to the correct device
         noise_tensor = torch.tensor(noise_image, device=self.pipeline.device)
 
-        # Step 2: Decode latents and ensure image is in [0,1] range
-
-
-        # Normalize to [0, 1] range explicitly
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
             pooled_prompt_embeds=prompt[1][0:1],
@@ -263,7 +259,7 @@ class ImageGenerator:
             num_inference_steps=self.config.steps[0],  # Use first step value
             guidance_scale=self.config.cfg,
             image=noise_tensor,
-            strength=1.0,
+            strength=1.3,
             clip_skip=self.config.clip_skip,
         ).images
 
