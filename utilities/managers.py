@@ -227,8 +227,7 @@ class ImageGenerator:
         self.config = Config()
 
     def txt2img(self, prompt, seed=None):
-
-        self.pipeline.unet.reset_memory()  # Reset U-Net state if applicable
+        # Reset U-Net state if applicable
         torch.cuda.empty_cache()
 
         if not isinstance(prompt, tuple):
