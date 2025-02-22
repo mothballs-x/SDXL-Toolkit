@@ -103,7 +103,7 @@ class PromptManager:
 # Class for managing LoRAs
 class LoraManager:
 
-    def __init__(self, pipeline, civitai_token, lora_paths: List[Tuple[str, str]] = None,  lora_dir: str = "/content/loras"):
+    def __init__(self, pipeline, civitai_token, lora_dir: str = "/content/loras"):
         self.pipeline = pipeline
         self.lora_dir = Path(lora_dir)  # Convert to Path object
         self.lora_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
