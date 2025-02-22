@@ -242,7 +242,7 @@ class ImageGenerator:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
 
-        noise_image = np.random.uniform(0, 1, (1, 3, 1024, 1024)).astype(np.float16)
+        noise_image = np.random.uniform(0, 1, (3, 1024, 1024)).astype(np.float16)
 
         # Convert to PyTorch tensor and send to the correct device
         noise_tensor = torch.tensor(noise_image, device=self.pipeline.device)
