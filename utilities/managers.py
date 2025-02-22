@@ -259,11 +259,28 @@ class ImageGenerator:
             num_inference_steps=self.config.steps[0],  # Use first step value
             guidance_scale=self.config.cfg,
             image=noise_tensor,
-            strength=1.3,
+            strength=1.0,
+            clip_skip=self.config.clip_skip,
+        ).images
+
+        images = self.pipeline(
+            prompt_embeds=prompt[0][0:1],
+            pooled_prompt_embeds=prompt[1][0:1],
+            negative_prompt_embeds=prompt[0][1:2],
+            negative_pooled_prompt_embeds=prompt[1][1:2],
+            num_images_per_prompt=self.config.num_imgs,
+            generator=generator,
+            width=self.config.width,
+            height=self.config.height,
+            num_inference_steps=self.config.steps[0],  # Use first step value
+            guidance_scale=self.config.cfg,
+            image=images,
+            strength=0.5,
             clip_skip=self.config.clip_skip,
         ).images
 
         self.config.current_seed = seed
+
         return images
 
     def upscale(self, images):
