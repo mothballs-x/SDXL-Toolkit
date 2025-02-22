@@ -242,10 +242,13 @@ class ImageGenerator:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
 
-        noise_image = np.random.uniform(0, 1, (3, 1024, 1024)).astype(np.float16)
+        latent_noise = torch.randn(
+            (1, 4, self.config.height // 8, self.config.width // 8),
+            device=self.pipeline.device,
+            generator=generator
+        )
 
-        # Convert to PyTorch tensor and send to the correct device
-        noise_tensor = torch.tensor(noise_image, device=self.pipeline.device)
+        noise_image = self.pipeline.vae.decode(latent_noise * self.pipeline.vae.scaling_factor).sample
 
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
@@ -258,24 +261,8 @@ class ImageGenerator:
             height=self.config.height,
             num_inference_steps=self.config.steps[0],  # Use first step value
             guidance_scale=self.config.cfg,
-            image=noise_tensor,
+            image=noise_image,
             strength=1.0,
-            clip_skip=self.config.clip_skip,
-        ).images
-
-        images = self.pipeline(
-            prompt_embeds=prompt[0][0:1],
-            pooled_prompt_embeds=prompt[1][0:1],
-            negative_prompt_embeds=prompt[0][1:2],
-            negative_pooled_prompt_embeds=prompt[1][1:2],
-            num_images_per_prompt=self.config.num_imgs,
-            generator=generator,
-            width=self.config.width,
-            height=self.config.height,
-            num_inference_steps=self.config.steps[0],  # Use first step value
-            guidance_scale=self.config.cfg,
-            image=images,
-            strength=0.5,
             clip_skip=self.config.clip_skip,
         ).images
 
