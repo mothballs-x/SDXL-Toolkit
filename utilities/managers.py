@@ -224,13 +224,12 @@ class ImageGenerator:
     def __init__(self, pipeline, upscaler):
         self.pipeline = pipeline
         self.upscale = upscaler  # Fixed incorrect reference
-
         self.config = Config()
 
-    def create_noise_img(self):
-        return np.random.uniform(size=(self.config.height, self.config.width, 3))
-
     def txt2img(self, prompt, seed=None):
+
+        self.pipeline.unet.reset_memory()  # Reset U-Net state if applicable
+        torch.cuda.empty_cache()
 
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
@@ -241,17 +240,6 @@ class ImageGenerator:
         else:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
-
-        # latent_noise = torch.randn(
-        #    (1, 4, self.config.height // 8, self.config.width // 8),
-        #    device=self.pipeline.device,
-        #    generator=generator
-        #)
-
-        # noise_image = self.pipeline.vae.decode(latent_noise * self.pipeline.vae.config.scaling_factor).sample
-        # noise_min = noise_image.min()
-        # noise_max = noise_image.max()
-        # noise_image = (noise_image - noise_min) / (noise_max - noise_min)
 
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
