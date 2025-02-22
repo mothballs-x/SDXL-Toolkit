@@ -249,7 +249,7 @@ class ImageGenerator:
         )  # SDXL works in latent space, so we use scaled-down dimensions
 
         # Step 2: Decode noise into an image using the pipeline’s VAE
-        noise_image = self.pipeline.vae.decode(latent_noise / 0.18215).sample
+        noise_image = self.pipeline.vae.decode(latent_noise / self.pipeline.vae.config.scaling_factor).sample
 
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
