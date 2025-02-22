@@ -1,6 +1,7 @@
 import subprocess
-from typing import Union, List, Tuple
+from typing import Union
 
+import numpy as np
 # PromptManager Imports
 from compel import Compel, ReturnedEmbeddingsType
 import random
@@ -43,7 +44,7 @@ class PromptManager:
         self.df = df
 
         self.compel = Compel(
-                tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2] ,
+                tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
                 text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
                 returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
                 requires_pooled=[False, True]
@@ -66,7 +67,7 @@ class PromptManager:
         return ', '.join(tags)
 
     def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
-    # Reset pos_prompt and neg_prompt before constructing
+        # Reset pos_prompt and neg_prompt before constructing
         self.pos_prompt = []
         self.neg_prompt = []
 
@@ -220,25 +221,30 @@ class Config:
 
 
 class ImageGenerator:
-    def __init__(self, text_pipeline, img_pipeline, upscaler):
-        self.text_pipeline = text_pipeline
-        self.img_pipeline = img_pipeline
+    def __init__(self, pipeline, upscaler):
+        self.pipeline = pipeline
         self.upscale = upscaler  # Fixed incorrect reference
 
         self.config = Config()
 
+    def create_noise_img(self):
+        return np.random.uniform(size=(self.config.height, self.config.width, 3))
+
     def txt2img(self, prompt, seed=None):
+
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
-        generator = torch.Generator(device=self.text_pipeline.device)
+        generator = torch.Generator(device=self.pipeline.device)
         if seed is None:
             seed = generator.seed()
         else:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
 
-        images = self.text_pipeline(
+        noise = self.create_noise_img()
+
+        images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
             pooled_prompt_embeds=prompt[1][0:1],
             negative_prompt_embeds=prompt[0][1:2],
@@ -249,6 +255,7 @@ class ImageGenerator:
             height=self.config.height,
             num_inference_steps=self.config.steps[0],  # Use first step value
             guidance_scale=self.config.cfg,
+            image=noise,
             clip_skip=self.config.clip_skip,
         ).images
 
@@ -256,6 +263,7 @@ class ImageGenerator:
         return images
 
     def upscale(self, images):
+
         return self.upscale(
             images,
             model_name='RealESRGAN_x4plus',
@@ -273,17 +281,17 @@ class ImageGenerator:
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
         if seed is None:
-            generator = torch.Generator(device=self.text_pipeline.device)
+            generator = torch.Generator(device=self.pipeline.device)
             seed = torch.seed()
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
         else:
-            generator = torch.Generator(device=self.text_pipeline.device)
+            generator = torch.Generator(device=self.pipeline.device)
             generator.manual_seed(seed)
 
         num_images = self.config.num_imgs if not for_hires else 1
 
-        output = self.img_pipeline(  # Fixed incorrect `img2img_pipe`
+        output = self.pipeline(  # Fixed incorrect `img2img_pipe`
             prompt_embeds=prompt[0][0:1],
             pooled_prompt_embeds=prompt[1][0:1],
             negative_prompt_embeds=prompt[0][1:2],
@@ -307,7 +315,7 @@ class ImageGenerator:
 
         first_pass_images = self.txt2img(prompt)
 
-        self.img_pipeline.enable_vae_tiling()  # Fixed incorrect `img2img_pipe`
+        self.pipeline.enable_vae_tiling()  # Fixed incorrect `img2img_pipe`
 
         original_width = self.config.width
         original_height = self.config.height
@@ -321,7 +329,7 @@ class ImageGenerator:
 
         results = []
         for i, img in enumerate(upscaled_images):
-            local_generator = torch.Generator(device=self.text_pipeline.device)
+            local_generator = torch.Generator(device=self.pipeline.device)
             local_generator.manual_seed(seeds[i])  # Fixed seed usage
             output = self.img2img(img, prompt, seed=seeds[i], for_hires=True)
             results.append(output[0])
@@ -331,8 +339,10 @@ class ImageGenerator:
 
         return results
 
-    def gfpgan(self, images, scale=2):
+    def gfpgan(self, images, scale=None):
 
+        if scale is None:
+            scale = self.config.scale
         gfpgan_script = '/content/GFPGAN/inference_gfpgan.py'
 
         if not Path(gfpgan_script).exists():
