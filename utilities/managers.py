@@ -248,7 +248,10 @@ class ImageGenerator:
             generator=generator
         )
 
-        noise_image = self.pipeline.vae.decode(latent_noise * self.pipeline.vae.scaling_factor).sample
+        noise_image = self.pipeline.vae.decode(latent_noise * self.pipeline.vae.config.scaling_factor).sample
+        noise_min = noise_image.min()
+        noise_max = noise_image.max()
+        noise_image = (noise_image - noise_min) / (noise_max - noise_min)
 
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
