@@ -242,16 +242,16 @@ class ImageGenerator:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
 
-        latent_noise = torch.randn(
-            (1, 4, self.config.height // 8, self.config.width // 8),
-            device=self.pipeline.device,
-            generator=generator
-        )
+        # latent_noise = torch.randn(
+        #    (1, 4, self.config.height // 8, self.config.width // 8),
+        #    device=self.pipeline.device,
+        #    generator=generator
+        #)
 
-        noise_image = self.pipeline.vae.decode(latent_noise * self.pipeline.vae.config.scaling_factor).sample
-        noise_min = noise_image.min()
-        noise_max = noise_image.max()
-        noise_image = (noise_image - noise_min) / (noise_max - noise_min)
+        # noise_image = self.pipeline.vae.decode(latent_noise * self.pipeline.vae.config.scaling_factor).sample
+        # noise_min = noise_image.min()
+        # noise_max = noise_image.max()
+        # noise_image = (noise_image - noise_min) / (noise_max - noise_min)
 
         images = self.pipeline(
             prompt_embeds=prompt[0][0:1],
@@ -264,8 +264,6 @@ class ImageGenerator:
             height=self.config.height,
             num_inference_steps=self.config.steps[0],  # Use first step value
             guidance_scale=self.config.cfg,
-            image=noise_image,
-            strength=1.0,
             clip_skip=self.config.clip_skip,
         ).images
 
