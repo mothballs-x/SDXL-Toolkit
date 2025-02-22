@@ -36,7 +36,7 @@ def log_generation(image_path,
     new_data.update({'seed': seed})
 
     # print(type(prompt_manager))
-    if type(prompt_manager).__name__ == "Prompter":
+    if type(prompt_manager).__name__ == "PromptManager":
       new_data.update({
         "pos_prompt": prompt_manager.pos_prompt,
         "neg_prompt": prompt_manager.neg_prompt,
