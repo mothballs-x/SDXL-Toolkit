@@ -228,12 +228,12 @@ class ImageGenerator:
 
     def txt2img(self, prompt, seed=None):
         # Reset U-Net state if applicable
-        torch.cuda.empty_cache()
 
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
         generator = torch.Generator(device=self.pipeline.device)
+
         if seed is None:
             seed = generator.seed()
         else:
