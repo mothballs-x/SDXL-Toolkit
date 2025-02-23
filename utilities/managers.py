@@ -209,7 +209,7 @@ class Config:
     steps: tuple = (29, 29)  # Ensure these are integers when used
     cfg: float = 8.0
     scale: float = 1.0
-    strength: float = 0.5  # Fixed typo from 'strength'
+    strength: float = 0.0  # Fixed typo from 'strength'
     current_seed: int = None
     clip_skip: int = 1
 
