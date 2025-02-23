@@ -7,6 +7,7 @@
              "real_illustrious_2.5": "John6666/realism-illustrious-by-stable-yogi-v25fp16-sdxl",
              "real_illustrious_1.8": "John6666/realism-illustrious-by-stable-yogi-v18-sdxl",
              "real_illustrious_3": "/content/drive/My Drive/checkpoints/realism_illustrious3.safetensors",
+             "real_illustious_3_civit": "https://civitai.com/api/download/models/1372996?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "illustrious_babes_1": "John6666/babes-illustrious-by-stable-yogi-v10fp16-sdxl"
     },
 
