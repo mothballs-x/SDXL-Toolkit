@@ -5,7 +5,6 @@ from diffusers import (EulerAncestralDiscreteScheduler,
                        DPMSolverMultistepScheduler,
                        DDIMScheduler,
                        PNDMScheduler, LCMScheduler)
-import torchsde
 
 def set_ddim_scheduler(pipeline):
     pipeline.scheduler = DDIMScheduler.from_config(
@@ -68,7 +67,7 @@ def set_lcm_scheduler(pipeline):
 
 
 # Scheduler Dict
-schedulers = {
+schedulers_dict = {
     'euler': set_euler_scheduler,
     'dpm': set_dpm_scheduler,
     'dpm_sde': set_dpm_sde_scheduler,
