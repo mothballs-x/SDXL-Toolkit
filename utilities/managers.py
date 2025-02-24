@@ -160,13 +160,13 @@ class LoraManager:
             raise TypeError("Names must be a string or a list of strings")
         if isinstance(names, str):
             names = [names]
+        self.pipeline.delete_adapters(names)
         for name in names:
             if name in self.loras:
                 del self.loras[name]
                 self.update_weights()
             else:
                 print(f"[Warning] LoRA '{name}' not found.")
-        self.pipeline.delete_adapters(names)
 
     def list_loras(self):
         """Return all available LoRAs"""
