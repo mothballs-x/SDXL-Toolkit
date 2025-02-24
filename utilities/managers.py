@@ -240,12 +240,33 @@ class ImageGenerator:
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
 
+        # Create noise in latent space
+        latents = torch.randn((self.config.num_imgs, 4,                    # Change 1 to self.config.num_imgs if batching
+                               self.config.height // 8,
+                               self.config.width // 8
+                               )).to(self.pipeline.device)
+        noisy_image = self.pipeline.vae.decode(
+            latents / self.pipeline.vae.config.scaling_factor
+        ).sample
+
+        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1)  # Normalize
+        noisy_image = noisy_image.permute(0, 2, 3, 1).cpu().numpy()[0]
+
+        strength = 1.0
+
         images = self.pipeline(
+            # Prompt
             prompt_embeds=prompt[0][0:1],
             pooled_prompt_embeds=prompt[1][0:1],
             negative_prompt_embeds=prompt[0][1:2],
             negative_pooled_prompt_embeds=prompt[1][1:2],
-            num_images_per_prompt=self.config.num_imgs,
+
+            # img2img settings
+            strength=strength,
+            image=noisy_image,
+
+            # Generation Settings
+            num_images_per_prompt=1,
             generator=generator,
             width=self.config.width,
             height=self.config.height,
