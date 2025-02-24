@@ -245,12 +245,14 @@ class ImageGenerator:
                                self.config.height // 8,
                                self.config.width // 8
                                )).to(self.pipeline.device)
+
         noisy_image = self.pipeline.vae.decode(
             latents / self.pipeline.vae.config.scaling_factor
         ).sample
 
-        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1)  # Normalize
-        noisy_image = noisy_image.permute(0, 2, 3, 1).cpu().numpy()[0].astype(np.float16)
+        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1).half()
+
+        print(f'noise dtype: {noisy_image.dtype}')
 
         strength = 1.0
 
