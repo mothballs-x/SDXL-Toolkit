@@ -305,9 +305,6 @@ class ImageGenerator:
 
     def img2img(self, image, prompt, seed=None, for_hires=False):
 
-        if image.size != (1024, 1024):
-            print('Image must be 1024x1024 to avoid distortions...')
-
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
@@ -354,7 +351,7 @@ class ImageGenerator:
         self.config.width = int(self.config.width * self.config.scale)  # Fixed missing SCALE
         self.config.height = int(self.config.height * self.config.scale)
 
-        upscaled_images = self.upscale(first_pass_images, scale=self.config.scale)
+        upscaled_images = self.upscale(first_pass_images)
 
         seeds = [self.config.current_seed + n for n in range(len(upscaled_images))]
 
