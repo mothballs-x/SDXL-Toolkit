@@ -241,7 +241,7 @@ class ImageGenerator:
             print(f'Seed: {seed}')
 
         # Create noise in latent space
-        latents = torch.randn((self.config.num_imgs, 4,                    # Change 1 to self.config.num_imgs if batching
+        latents = torch.randn((1, 4,                    # Change 1 to self.config.num_imgs if batching
                                self.config.height // 8,
                                self.config.width // 8
                                )).to(self.pipeline.device)
@@ -251,6 +251,8 @@ class ImageGenerator:
         ).sample
 
         noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1).half()
+
+        imgs = [Image.fromarray(noisy_i) for noisy_i in noisy_image]
 
         print(f'noise dtype: {noisy_image.dtype}')
 
