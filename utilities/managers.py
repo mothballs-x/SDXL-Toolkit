@@ -227,59 +227,71 @@ class ImageGenerator:
         self.config = Config()
 
     def txt2img(self, prompt, seed=None):
-        # Reset U-Net state if applicable
+        """
+        txt2img method that casts prompts, latents, and any intermediate tensors
+        to float16 so they match a half-precision pipeline.
+        """
 
+        import torch
+        from PIL import Image
+
+        # 1. Validate prompt structure
         if not isinstance(prompt, tuple):
-            raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
+            raise TypeError("Prompt must be a tuple of (cond_embeds, pooled_embeds).")
 
+        # 2. Cast prompt embeddings to half precision on the correct device
+        cond_embeds = prompt[0].to(dtype=torch.float16, device=self.pipeline.device)
+        pooled_embeds = prompt[1].to(dtype=torch.float16, device=self.pipeline.device)
+
+        # 3. Initialize the generator
         generator = torch.Generator(device=self.pipeline.device)
-
         if seed is None:
-            seed = generator.seed()
+            seed = generator.seed()  # get a random seed
         else:
             generator.manual_seed(seed)
-            print(f'Seed: {seed}')
+            print(f"Seed: {seed}")
 
-        # Create noise in latent space
-        latents = torch.randn((1, 4,                    # Change 1 to self.config.num_imgs if batching
-                               self.config.height // 8,
-                               self.config.width // 8
-                               )).to(self.pipeline.device)
+        # 4. Create noise in latent space at half precision
+        latents = torch.randn(
+            (1, 4, self.config.height // 8, self.config.width // 8),
+            generator=generator,
+            device=self.pipeline.device,
+            dtype=torch.float16
+        )
 
-        noisy_image = self.pipeline.vae.decode(
-            latents / self.pipeline.vae.config.scaling_factor
-        ).sample
+        # 5. Decode the random latents to get a "noisy" PIL image
+        #    Because we're using an img2img pipeline under the hood
 
-        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1)  # Normalize to [0,1]
-        noisy_image = noisy_image.cpu().permute(0, 2, 3, 1).numpy()  # Convert (B, C, H, W) → (B, H, W, C)
+        with torch.no_grad():
+            noisy_image = self.pipeline.vae.decode(
+                latents / self.pipeline.vae.config.scaling_factor
+            ).sample  # shape: (B, C, H, W)
 
+        # 6. Convert from [-1, 1] or [0, 1] range to [0, 1], then to CPU PIL
+        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1)
+        noisy_image = noisy_image.permute(0, 2, 3, 1).contiguous().cpu().numpy()
         pil_images = [Image.fromarray((img * 255).astype("uint8")) for img in noisy_image]
 
-        print(f'noise dtype: {noisy_image.dtype}')
-
-        strength = 1.0
+        # 7. Run the "img2img" pipeline using our half-precision embeddings
+        #    'strength=1.0' effectively yields a txt2img-like result
 
         images = self.pipeline(
-            # Prompt
-            prompt_embeds=prompt[0][0:1],
-            pooled_prompt_embeds=prompt[1][0:1],
-            negative_prompt_embeds=prompt[0][1:2],
-            negative_pooled_prompt_embeds=prompt[1][1:2],
-
-            # img2img settings
-            strength=strength,
+            prompt_embeds=cond_embeds[0:1],
+            pooled_prompt_embeds=pooled_embeds[0:1],
+            negative_prompt_embeds=cond_embeds[1:2],
+            negative_pooled_prompt_embeds=pooled_embeds[1:2],
+            strength=1.0,
             image=pil_images,
-
-            # Generation Settings
             num_images_per_prompt=1,
             generator=generator,
             width=self.config.width,
             height=self.config.height,
-            num_inference_steps=self.config.steps[0],  # Use first step value
+            num_inference_steps=self.config.steps[0],
             guidance_scale=self.config.cfg,
             clip_skip=self.config.clip_skip,
         ).images
 
+        # 8. Save the seed used (if you track seeds in your config)
         self.config.current_seed = seed
 
         return images
