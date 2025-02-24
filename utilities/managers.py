@@ -272,9 +272,6 @@ class ImageGenerator:
         noisy_image = noisy_image.permute(0, 2, 3, 1).contiguous().cpu().numpy()
         pil_images = [Image.fromarray((img * 255).astype("uint8")) for img in noisy_image]
 
-        # 7. Run the "img2img" pipeline using our half-precision embeddings
-        #    'strength=1.0' effectively yields a txt2img-like result
-
         images = self.pipeline(
             prompt_embeds=cond_embeds[0:1],
             pooled_prompt_embeds=pooled_embeds[0:1],
@@ -282,7 +279,7 @@ class ImageGenerator:
             negative_pooled_prompt_embeds=pooled_embeds[1:2],
             strength=1.0,
             image=pil_images,
-            num_images_per_prompt=1,
+            num_images_per_prompt=self.config.num_imgs,
             generator=generator,
             width=self.config.width,
             height=self.config.height,
