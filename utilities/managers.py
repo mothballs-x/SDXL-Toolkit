@@ -64,7 +64,7 @@ class PromptManager:
             # print(tag, end=', ')  # ✅ Shows selected tags in real-time
 
             # print('\n')
-        return ', '.join(tags)
+        return tags
 
     def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
         # Reset pos_prompt and neg_prompt before constructing
