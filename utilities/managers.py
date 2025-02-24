@@ -250,7 +250,7 @@ class ImageGenerator:
         ).sample
 
         noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1)  # Normalize
-        noisy_image = noisy_image.permute(0, 2, 3, 1).cpu().numpy()[0]
+        noisy_image = noisy_image.permute(0, 2, 3, 1).cpu().numpy()[0].astype(np.float16)
 
         strength = 1.0
 
