@@ -252,7 +252,7 @@ class ImageGenerator:
 
         noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1).half()
 
-        imgs = [Image.fromarray(noisy_i) for noisy_i in noisy_image]
+        img = Image.fromarray(noisy_image.numpy())
 
         print(f'noise dtype: {noisy_image.dtype}')
 
@@ -267,7 +267,7 @@ class ImageGenerator:
 
             # img2img settings
             strength=strength,
-            image=noisy_image,
+            image=img,
 
             # Generation Settings
             num_images_per_prompt=1,
