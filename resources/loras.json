@@ -102,6 +102,12 @@
         "model": "pony"
     },
     {
+    "name": "sdxl-ager",
+    "link": "https://civitai.com/api/download/models/268828",
+    "triggers": "",
+    "model": "base"
+    },
+    {
         "name": "doggy_style_front",
         "link": "https://civitai.com/api/download/model/145907",
         "triggers": "plowcam",
