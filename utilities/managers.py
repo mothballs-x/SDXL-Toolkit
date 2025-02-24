@@ -250,9 +250,10 @@ class ImageGenerator:
             latents / self.pipeline.vae.config.scaling_factor
         ).sample
 
-        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1).half()
+        noisy_image = (noisy_image / 2 + 0.5).clamp(0, 1)  # Normalize to [0,1]
+        noisy_image = noisy_image.cpu().permute(0, 2, 3, 1).numpy()  # Convert (B, C, H, W) → (B, H, W, C)
 
-        img = Image.fromarray(noisy_image.numpy())
+        pil_images = [Image.fromarray((img * 255).astype("uint8")) for img in noisy_image]
 
         print(f'noise dtype: {noisy_image.dtype}')
 
@@ -267,7 +268,7 @@ class ImageGenerator:
 
             # img2img settings
             strength=strength,
-            image=img,
+            image=pil_images,
 
             # Generation Settings
             num_images_per_prompt=1,
