@@ -341,7 +341,7 @@ class ImageGenerator:
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
-        if scale is None:
+        if scale is not None:
             self.config.scale = scale
 
         first_pass_images = self.txt2img(prompt)
