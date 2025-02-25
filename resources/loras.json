@@ -108,6 +108,12 @@
         "model": "base"
     },
     {
+        "name": "sdxl-ager",
+        "link": "https://civitai.com/api/download/models/268828",
+        "triggers": "",
+        "model": "base"
+    },
+    {
         "name": "expressive_h",
         "link": "https://civitai.com/api/download/model/382152",
         "triggers": "expressiveh",
