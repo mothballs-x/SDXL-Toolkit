@@ -1,30 +1,29 @@
 # ✨🔮Stable Diffusion ToolKit🔮✨
 
 
-A **Colab Notebook** that tries the bridge the gap between the convenience of a tool like Automatic1111 and the versatility of a purely script-based notebook. Mostly made for myself, thought it might be somewhat useful to others.
+A **Colab Notebook** that tries the bridge the gap between the convenience of a tool like Automatic1111 and the versatility of a purely script-based notebook. Mostly made for myself, thought it might be somewhat useful to others. For features with asterisks, see note at bottom of readme.
 
 #### Includes:
 	- Txt2Img Pipeline
-	- Img2Img Pipeline 
+	- Img2Img Pipeline* 
 	- REALESRGAN Upscaler
-	- HiRes Fix
+	- HiRes Fix*
 	- GFPGAN Upscaler
 	- Lora and Prompt Managers
-
 ---
 
 ### Setup:
 
-	1. Save utilities/ in Drive root directory
-	2. Load Notebook
+	1. Download notebook
+	2. Load notebook in colab
 
-That's basically it!
+That's basically it. There's a line in the notebook that clones the necessary files for running the notebook, which are broken down into utilities for functionality and resources that compile models, LoRAs, and embeddings from civitai, huggingface, or a local directory. 
 
 ---
 
 ### Models and LoRAs:
 
-Models and LoRAs can be pulled from Drive, huggingface, or civitai (via API). Use **models.json** and **lora_list.json** to create a directory of file references. Here's the structure:
+Models and LoRAs can be downloaded from Drive, huggingface, or civitai (via API). Use **models.json** and **lora_list.json** to create a directory of file references. Here's the structure for each:
 
 #### models.json
 
@@ -48,27 +47,47 @@ Models and LoRAs can be pulled from Drive, huggingface, or civitai (via API). Us
   "model": "base/pony/etc..."
 }
 ```
-  
-It's a rather useful way to manage models/LoRAs without having to take up valuable Drive space. I've added a smattering of models and LoRAs to start out with (**warning: many included LoRAs are NSFW!**)
+
+#### embeddings.json
+
+```json
+{
+  "name": {
+    "positive": {
+      "link": "http://civitai.com/api/download/models/123456",
+      "token": "Positive_Embedding_Token"
+    },
+    "negative": {
+      "link": "https://civitai.com/api/download/models/123456",
+      "token": "Negative_Embedding_Token"
+    }
+  }
+}
+```
+For embeddings, both "positive" and "negative" are necessary; just leave "link" and "token" blank in one or the other if you're not loading a pair of embeddings.   
+I've found it's a rather useful way to manage models/LoRAs without having to take up drive space. But if you have a locally stored LoRA/embedding you can enter its path/url and the notebook will process it.
 
 ### Managers:
 
 There are three classes that do most of the work here: LoraManager, Prompter, and ImageGenerator. 
 
-**LoraManager** handles adding/removing LoRAs and modifying weights with a pretty bare-bones UI.
+**LoraManager** simplifies adding/removing LoRAs and modifying their weights.
 
-**Prompter** compiles pos/neg prompts with the structure:
+**PromptManager** compiles pos/neg prompts using the following structure:
 
 	- <embedding tokens> <pony tags?> <'initial' tags> <main prompt>
-
-where *embedding tokens* are added automatically, *pony tags* are optional 'score_9, etc...' tags, *initial prompts* are tags you want to persist over different prompts, and *main prompt* is...your main prompt. There's also an option to either automatically include random danbooru tags in your prompt, or just generate a list of tags to sprinkle in when your creativity is lacking.
+First a PromptManager object is created, which takes a series of initial tags that you'd like to remain active over multiple prompts (I find it useful to add LoRA triggers here). Once the prompt manager is created a text box appears for the actual prompt. You can also add random tags pulled from resources/danbooru-tag.csv, shuffle your prompt tags, or generate a list of tags that you can manually add to the prompt.  
 
 **ImageGenerator** handles methods for generation and upscaling, with a configuration collections.dataset that's controlled by widgets. 
 
 ### Note on Image2Image generation
 
-I've been have issues with img2img generation overloading the GPU, so I'm trying to figure out how to best manage this. Going to create a branch to work on it. So currently only txt2img and the upscaling methods are fully functional.  
+Running a txt2ing and an img2img pipeline at the same time in colab quickly overloads even a1000 GPUs. To remedy this, I've made a version of the ImageGenerator class that can handle both txt2img and img2img generation with a StableDiffusionXLImg2Img pipeline alone, using pre-generated noise latents. This approach works decently, but it's not great. For the most part the biggest problem seems to be generating hands.
+So, if you want to use img2img and hiRes, there are two lines of code in the notebook that need to be active. After cloning the repository, run:
 
+```python
+%cd /content/toolkit
+!git checkout img2img
+```
 
-
-
+If you want better txt2img generation, comment these out and the notebook will run the main branch and load the basic StableDiffusionXLPipeline instead. I welcome any suggestions for a better approach!

@@ -1,0 +1,9 @@
+ {
+    "name": "yogi-setup",
+    "loras": {
+      "yogi-detailer": "0.8",
+      "yogi-eyes": "0.75",
+      "dynamic_lighting": "0.5",
+      "/content/drive/My Drive/Loras/stored_loras/XL-ageSlider-3-pony.pt": "-1.0"
+  }
+}
