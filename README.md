@@ -65,7 +65,7 @@ Models and LoRAs can be downloaded from Drive, huggingface, or civitai (via API)
 }
 ```
 For embeddings, both "positive" and "negative" are necessary; just leave "link" and "token" blank in one or the other if you're not loading a pair of embeddings.   
-I've found it's a rather useful way to manage models/LoRAs without having to take up drive space. But if you have a locally stored LoRA/embedding you can enter its path/url and the notebook will process it.
+I've found it's a rather useful way to manage models/LoRAs without having to take up drive space. But if you have a locally stored LoRA/embedding you want to use you can enter a Drive path or civitai ink and the notebook will process it.
 
 ### Managers:
 
