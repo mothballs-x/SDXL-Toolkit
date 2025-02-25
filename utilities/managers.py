@@ -332,6 +332,8 @@ class ImageGenerator:
             generator=generator,
             strength=self.config.strength,  # Fixed typo
         ).images
+
+        torch.cuda.empty_cache()
         return output
 
     def hi_res(self, prompt, scale=None):
