@@ -8,6 +8,7 @@
              "real_illustrious_2.5": "John6666/realism-illustrious-by-stable-yogi-v25fp16-sdxl",
              "real_illustrious_1.8": "John6666/realism-illustrious-by-stable-yogi-v18-sdxl",
              "real_illustrious_3": "https://civitai.com/api/download/models/1372996?type=Model&format=SafeTensor&size=pruned&fp=fp16",
+             "real_illustrious_3.5": "https://civitai.com/api/download/models/1542140?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "real_illustrious_3hf": "John6666/ilustreal-v30-sdxl",
              "illustrious_babes_1": "John6666/babes-illustrious-by-stable-yogi-v10fp16-sdxl"
     },
