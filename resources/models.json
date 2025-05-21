@@ -3,6 +3,7 @@
     "yogi": {
              "babes_3": "John6666/babes-by-stable-yogi-xlv3-sdxl",
              "babes_4": "John6666/babes-by-stable-yogi-ponyv4vaefix-sdxl",
+             "babes_5": "https://civitai.green/api/download/models/1779463?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "realism_3": "John6666/realism-by-stable-yogi-ponyv3vae-sdxl",
              "realism_4": "https://civitai.com/api/download/models/1422871?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "real_illustrious_2.5": "John6666/realism-illustrious-by-stable-yogi-v25fp16-sdxl",
@@ -10,6 +11,7 @@
              "real_illustrious_3": "https://civitai.com/api/download/models/1372996?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "real_illustrious_3.5": "https://civitai.com/api/download/models/1542140?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "real_illustrious_3hf": "John6666/ilustreal-v30-sdxl",
+             "real_illustrious_4": "https://civitai.com/api/download/models/1736657?type=Model&format=SafeTensor&size=pruned&fp=fp16",
              "illustrious_babes_1": "John6666/babes-illustrious-by-stable-yogi-v10fp16-sdxl"
     },
 
