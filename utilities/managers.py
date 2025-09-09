@@ -1,7 +1,6 @@
 import subprocess
 from typing import Union
 
-import numpy as np
 # PromptManager Imports
 from compel import Compel, ReturnedEmbeddingsType
 import random
@@ -42,28 +41,30 @@ class PromptManager:
         self.neg_prompt = ""
 
         self.df = df
+        self.device = getattr(pipeline, "device",
+                              torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self.enc_dtype = pipeline.text_encoder.dtype
 
         self.compel = Compel(
                 tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
                 text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
                 returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-                requires_pooled=[False, True]
+                requires_pooled=[False, True],
+                device=self.device,
         )
-
     def randan(self, count=15, threshold=1):
+        """Return `count` tags with tag_number > threshold."""
+        if self.df is None or len(self.df) == 0:
+            return ""
         tags = []
-
-        while len(tags) < count:  # Ensure we always get "count" valid tags
-            x = random.randint(0, len(self.df) - 1)  # ✅ Avoid out-of-bounds indexing
-
-            tag, tag_number = self.df.loc[x].values
-            tag = re.sub(r'_', ' ', tag)
-
-            if tag_number > threshold:  # ✅ Drop tags that don't meet the threshold
+        # Prefer iloc to avoid surprises with non-integer index
+        while len(tags) < count:
+            x = random.randint(0, len(self.df) - 1)
+            row = self.df.iloc[x]          # <-- was loc[x]
+            tag = re.sub(r'_', ' ', str(row[0]))
+            tag_number = float(row[1])
+            if tag_number > threshold:
                 tags.append(tag)
-            # print(tag, end=', ')  # ✅ Shows selected tags in real-time
-
-            # print('\n')
         return ', '.join(tags)
 
     def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
@@ -87,18 +88,31 @@ class PromptManager:
         if rand_tags:
             self.pos_prompt.append(self.randan())
 
-        self.pos_prompt = [re.sub(r'\n', '', tag) for tag in self.pos_prompt]
-        self.neg_prompt = [re.sub(r'\n', '', tag) for tag in self.neg_prompt]
-
+        pos_parts = [re.sub(r'\n', '', t) for t in pos_parts]
+        neg_parts = [re.sub(r'\n', '', t) for t in neg_parts]
         if shuffle:
-            random.shuffle(self.pos_prompt)
+            random.shuffle(pos_parts)
 
-        self.pos_prompt = ", ".join(self.pos_prompt)
-        self.neg_prompt = ", ".join(self.neg_prompt)
+        self.pos_prompt = ", ".join(pos_parts)
+        self.neg_prompt = ", ".join(neg_parts)
 
-        prompt_embeddings = self.compel([self.pos_prompt, self.neg_prompt])
+        # NEW: ask Compel for pooled embeddings too
+        prompt_embeds, pooled_embeds = self.compel(
+            [self.pos_prompt, self.neg_prompt],
+            return_pooled=True
+        )
 
-        return prompt_embeddings
+        # NEW: enforce exact device/dtype (helps when using offload)
+        def _to(x):
+            if isinstance(x, (list, tuple)):
+                return [t.to(self.device, dtype=self.enc_dtype) for t in x]
+            return x.to(self.device, dtype=self.enc_dtype)
+
+        prompt_embeds = _to(prompt_embeds)
+        pooled_embeds = _to(pooled_embeds)
+
+        # Keep your original interface: a tuple of (cond, pooled)
+        return (prompt_embeds, pooled_embeds)
 
 
 # Class for managing LoRAs
@@ -156,17 +170,21 @@ class LoraManager:
 
     def delete_lora(self, names: Union[str, list]):
         """Remove a LoRA from the manager"""
-        if not (isinstance(names, list) or isinstance(names, str)):
-            raise TypeError("Names must be a string or a list of strings")
         if isinstance(names, str):
             names = [names]
+        elif not isinstance(names, list):
+            raise TypeError("Names must be a string or a list of strings")
+
+        # Remove adapters from pipeline
         self.pipeline.delete_adapters(names)
+
+        # Clean internal map
         for name in names:
             if name in self.loras:
-                del self.loras[name]
-                self.update_weights()
+                del self.loras[name]  # <-- fixed
             else:
                 print(f"[Warning] LoRA '{name}' not found.")
+        self.update_weights()
 
     def list_loras(self):
         """Return all available LoRAs"""
@@ -223,7 +241,7 @@ class Config:
 class ImageGenerator:
     def __init__(self, pipeline, upscaler):
         self.pipeline = pipeline
-        self.upscale = upscaler  # Fixed incorrect reference
+        self.upscaler = upscaler  # Fixed incorrect reference
         self.config = Config()
 
     def txt2img(self, prompt, seed=None):
@@ -260,7 +278,7 @@ class ImageGenerator:
 
     def upscale(self, images):
 
-        return self.upscale(
+        return self.upscaler(
             images,
             model_name='RealESRGAN_x4plus',
             scale_factor=self.config.scale,
@@ -306,33 +324,34 @@ class ImageGenerator:
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
-        if scale is None:
+        if scale is not None:  # <-- fixed
             self.config.scale = scale
 
         first_pass_images = self.txt2img(prompt)
 
-        self.pipeline.enable_vae_tiling()  # Fixed incorrect `img2img_pipe`
+        self.pipeline.enable_vae_tiling()
 
         original_width = self.config.width
         original_height = self.config.height
 
-        self.config.width = int(self.config.width * self.config.scale)  # Fixed missing SCALE
+        # If you intend to *render* larger in the second pass, adjust here;
+        # but note you're feeding upscaled images into img2img anyway:
+        self.config.width = int(self.config.width * self.config.scale)
         self.config.height = int(self.config.height * self.config.scale)
 
-        upscaled_images = self.upscale(first_pass_images, scale=self.config.scale)
+        # Call your wrapper (or the function) consistently:
+        upscaled_images = self.upscale(first_pass_images)
 
         seeds = [self.config.current_seed + n for n in range(len(upscaled_images))]
-
         results = []
         for i, img in enumerate(upscaled_images):
             local_generator = torch.Generator(device=self.pipeline.device)
-            local_generator.manual_seed(seeds[i])  # Fixed seed usage
+            local_generator.manual_seed(seeds[i])
             output = self.img2img(img, prompt, seed=seeds[i], for_hires=True)
             results.append(output[0])
 
         self.config.height = original_height
         self.config.width = original_width
-
         return results
 
     def gfpgan(self, images, scale=None):
