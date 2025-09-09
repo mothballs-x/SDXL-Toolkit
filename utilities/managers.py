@@ -68,41 +68,43 @@ class PromptManager:
         return ', '.join(tags)
 
     def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
-        # Reset pos_prompt and neg_prompt before constructing
-        self.pos_prompt = []
-        self.neg_prompt = []
+        # Build local parts lists
+        pos_parts = []
+        neg_parts = []
 
         if self.pos_tokens:
-            self.pos_prompt.append(self.pos_tokens)
+            pos_parts.append(self.pos_tokens)
         if self.neg_tokens:
-            self.neg_prompt.append(self.neg_tokens)
+            neg_parts.append(self.neg_tokens)
         if self.pony:
-            self.pos_prompt.append(self.pony_pos)
-            self.neg_prompt.append(self.pony_neg)
+            pos_parts.append(self.pony_pos)
+            neg_parts.append(self.pony_neg)
         if self.initial:
-            self.pos_prompt.append(self.initial)
+            pos_parts.append(self.initial)
         if main_pos:
-            self.pos_prompt.append(main_pos)
+            pos_parts.append(main_pos)
         if main_neg:
-            self.neg_prompt.append(main_neg)
+            neg_parts.append(main_neg)
         if rand_tags:
-            self.pos_prompt.append(self.randan())
+            pos_parts.append(self.randan())
 
+        # Clean and optionally shuffle
         pos_parts = [re.sub(r'\n', '', t) for t in pos_parts]
         neg_parts = [re.sub(r'\n', '', t) for t in neg_parts]
         if shuffle:
             random.shuffle(pos_parts)
 
-        self.pos_prompt = ", ".join(pos_parts)
-        self.neg_prompt = ", ".join(neg_parts)
+        # Join -> persist on the instance
+        self.pos_prompt = ", ".join([t for t in pos_parts if t])
+        self.neg_prompt = ", ".join([t for t in neg_parts if t])
 
-        # NEW: ask Compel for pooled embeddings too
+        # Get both prompt and pooled embeddings for SDXL
         prompt_embeds, pooled_embeds = self.compel(
-            [self.pos_prompt, self.neg_prompt],
+            [self.pos_prompt or "", self.neg_prompt or ""],
             return_pooled=True
         )
 
-        # NEW: enforce exact device/dtype (helps when using offload)
+        # Ensure tensors live on the same device/dtype as encoders
         def _to(x):
             if isinstance(x, (list, tuple)):
                 return [t.to(self.device, dtype=self.enc_dtype) for t in x]
@@ -111,7 +113,6 @@ class PromptManager:
         prompt_embeds = _to(prompt_embeds)
         pooled_embeds = _to(pooled_embeds)
 
-        # Keep your original interface: a tuple of (cond, pooled)
         return (prompt_embeds, pooled_embeds)
 
 
