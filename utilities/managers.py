@@ -16,19 +16,22 @@ from dataclasses import dataclass
 import torch
 
 
-# Class for managing prompts
+# -----------------------------
+# Prompt Manager
+# -----------------------------
 class PromptManager:
-
     pony_pos = 'score_9, score_8_up, score_7_up, score_6_up, rating_explicit'
     pony_neg = 'score_5, score_4, score_3, score_2, rating_safe'
 
     def __init__(
-      self, pipeline,
-      initial_tags=None,
-      pos_tokens=None, neg_tokens=None,
-      df=None, pony=True
-      ):
+        self, pipeline,
+        initial_tags=None,
+        pos_tokens=None, neg_tokens=None,
+        df=None, pony=True
+    ):
+        self.pipeline = pipeline
 
+        # Persisted tokens/options
         self.initial = initial_tags
         pos_tokens = ', '.join(pos_tokens) if isinstance(pos_tokens, list) else pos_tokens
         neg_tokens = ', '.join(neg_tokens) if isinstance(neg_tokens, list) else neg_tokens
@@ -36,22 +39,42 @@ class PromptManager:
         self.neg_tokens = neg_tokens
         self.pony = pony
 
+        # Human-readable strings for last-built prompts
         self.prompt = ""
         self.pos_prompt = ""
         self.neg_prompt = ""
 
+        # Optional DataFrame for random tags
         self.df = df
-        self.device = getattr(pipeline, "device",
-                              torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-        self.enc_dtype = pipeline.text_encoder.dtype
 
+        # Where the UNet lives (usually cuda:0) and target dtype (half on GPU, float on CPU)
+        self.target_device = getattr(pipeline, "device",
+                                     torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self.target_dtype = getattr(getattr(pipeline, "unet", None), "dtype",
+                                    getattr(pipeline.text_encoder, "dtype", torch.float32))
+
+        # --- Key design choice for robustness ---
+        # Always run BOTH text encoders on CPU for embedding creation.
+        # This avoids the notorious CPU/CUDA index mismatch inside torch.embedding()
+        # when Compel token indices are CPU but encoders get moved to CUDA by Accelerate.
+        pipeline.text_encoder.to("cpu")
+        pipeline.text_encoder_2.to("cpu")
+
+        # Build Compel WITHOUT device hints (older Compel versions ignore it anyway).
+        # It will use the provided encoders (now on CPU).
         self.compel = Compel(
-                tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
-                text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
-                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-                requires_pooled=[False, True],
-                device=self.device,
+            tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
+            text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
         )
+
+    def _move_to_target(self, x):
+        """Move tensor(s) to UNet device/dtype."""
+        if isinstance(x, (list, tuple)):
+            return [t.to(self.target_device, dtype=self.target_dtype) for t in x]
+        return x.to(self.target_device, dtype=self.target_dtype)
+
     def randan(self, count=15, threshold=1):
         """Return `count` tags with tag_number > threshold."""
         if self.df is None or len(self.df) == 0:
@@ -60,7 +83,7 @@ class PromptManager:
         # Prefer iloc to avoid surprises with non-integer index
         while len(tags) < count:
             x = random.randint(0, len(self.df) - 1)
-            row = self.df.iloc[x]          # <-- was loc[x]
+            row = self.df.iloc[x]
             tag = re.sub(r'_', ' ', str(row[0]))
             tag_number = float(row[1])
             if tag_number > threshold:
@@ -98,13 +121,10 @@ class PromptManager:
         self.pos_prompt = ", ".join([t for t in pos_parts if t])
         self.neg_prompt = ", ".join([t for t in neg_parts if t])
 
-        self.pos_prompt = ", ".join([t for t in pos_parts if t])
-        self.neg_prompt = ", ".join([t for t in neg_parts if t])
-
-        # 1) Get SDXL prompt embeddings via Compel (pos+neg batched)
+        # 1) SDXL conditional embeddings via Compel (encoders on CPU => stable)
         prompt_embeds = self.compel([self.pos_prompt or "", self.neg_prompt or ""])
 
-        # 2) Get pooled embeddings from the second CLIP encoder (version-agnostic)
+        # 2) SDXL pooled embeddings from the second CLIP encoder, also on CPU
         tok2 = self.compel.tokenizer[1](
             [self.pos_prompt or "", self.neg_prompt or ""],
             padding="max_length",
@@ -112,7 +132,9 @@ class PromptManager:
             truncation=True,
             return_tensors="pt",
         )
-        tok2 = {k: v.to(self.device) for k, v in tok2.items()}
+        # ensure token tensors are on the *actual* device of encoder_2 (CPU here)
+        enc2_dev = next(self.compel.text_encoder[1].parameters()).device
+        tok2 = {k: v.to(enc2_dev) for k, v in tok2.items()}
 
         with torch.no_grad():
             enc2_out = self.compel.text_encoder[1](
@@ -123,19 +145,16 @@ class PromptManager:
             # CLIPTextModelWithProjection returns .pooler_output
             pooled_embeds = enc2_out.pooler_output
 
-        # Ensure tensors live on the same device/dtype as encoders
-        def _to(x):
-            if isinstance(x, (list, tuple)):
-                return [t.to(self.device, dtype=self.enc_dtype) for t in x]
-            return x.to(self.device, dtype=self.enc_dtype)
-
-        prompt_embeds = _to(prompt_embeds)
-        pooled_embeds = _to(pooled_embeds)
+        # 3) Move both outputs to the UNet's device/dtype for generation
+        prompt_embeds = self._move_to_target(prompt_embeds)
+        pooled_embeds = self._move_to_target(pooled_embeds)
 
         return (prompt_embeds, pooled_embeds)
 
 
-# Class for managing LoRAs
+# -----------------------------
+# LoRA Manager
+# -----------------------------
 class LoraManager:
 
     def __init__(self, pipeline, civitai_token, lora_dir: str = "/content/loras"):
@@ -146,7 +165,7 @@ class LoraManager:
         self.loras = {}
 
     class Lora:
-        def __init__(self, container, path: str, filename: str, name: str, weight: float = 0.0):
+        def __init__(self, container, path: Path, filename: str, name: str, weight: float = 0.0):
             self.container = container
             self.path = path
             self.filename = filename
@@ -163,16 +182,17 @@ class LoraManager:
             self.container.pipeline.load_lora_weights(
                 self.path,
                 adapter_name=self.name
-                )
+            )
 
         def __repr__(self):
-            return f'Lora({self.name, self.weight}'
+            return f'Lora({self.name, self.weight})'
 
     def update_weights(self):
         """Apply updated weights to LoRAs in the pipeline"""
         lora_names = [lora.name for lora in self.loras.values()]
         lora_weights = [lora.weight for lora in self.loras.values()]
-        self.pipeline.set_adapters(lora_names, lora_weights)
+        if lora_names:
+            self.pipeline.set_adapters(lora_names, lora_weights)
 
     def add_lora(self, path: str, name: str, weight: float = 0.0):
         """Add a LoRA either from a local file or from CivitAI"""
@@ -201,7 +221,7 @@ class LoraManager:
         # Clean internal map
         for name in names:
             if name in self.loras:
-                del self.loras[name]  # <-- fixed
+                del self.loras[name]
             else:
                 print(f"[Warning] LoRA '{name}' not found.")
         self.update_weights()
@@ -216,29 +236,33 @@ class LoraManager:
         self.update_weights()
 
     def get_lora_from_link(self, model_code: str, name: str):
-        """Download LoRA from CivitAI and ensure it's saved as a binary safetensors file."""
+        """Download LoRAs from CivitAI and save as safetensors."""
         lora_url = f"https://civitai.com/api/download/models/{model_code}?token={self.civitai_token}"
-        resp = requests.get(lora_url, stream=True)
+        with requests.get(lora_url, stream=True) as resp:
+            if resp.status_code != 200:
+                raise ValueError(f"Failed to download LoRA '{name}'. Status: {resp.status_code} - {resp.text}")
 
-        if resp.status_code != 200:
-            raise ValueError(f"Failed to download LoRA '{name}'. Status: {resp.status_code} - {resp.text}")
+            content_disp = resp.headers.get("content-disposition", "")
+            if "filename=" in content_disp:
+                file_name = content_disp.split("filename=")[1].strip('"')
+            else:
+                file_name = f"{name}.safetensors"  # Fallback name
 
-        content_disp = resp.headers.get("content-disposition", "")
-        if "filename=" in content_disp:
-            file_name = content_disp.split("filename=")[1].strip('"')
-        else:
-            file_name = f"{name}.safetensors"  # Fallback name
+            lora_path = self.lora_dir / file_name
+            with open(lora_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        f.write(chunk)
 
-        lora_path = self.lora_dir / file_name
-        with open(lora_path, "wb") as f:
-            f.write(resp.content)  # Ensure binary mode is used
-
-        if not lora_path.suffix == ".safetensors":
+        if lora_path.suffix.lower() != ".safetensors":
             print(f"⚠️ Downloaded file does not have a .safetensors extension: {lora_path}")
 
         return lora_path
 
 
+# -----------------------------
+# Image Generation
+# -----------------------------
 @dataclass
 class Config:
     width: int = 768
@@ -247,7 +271,7 @@ class Config:
     steps: tuple = (29, 29)  # Ensure these are integers when used
     cfg: float = 8.0
     scale: float = 1.0
-    strength: float = 0.0  # Fixed typo from 'strength'
+    strength: float = 0.0  # img2img strength
     current_seed: int = None
     clip_skip: int = 1
 
@@ -261,12 +285,10 @@ class Config:
 class ImageGenerator:
     def __init__(self, pipeline, upscaler):
         self.pipeline = pipeline
-        self.upscaler = upscaler  # Fixed incorrect reference
+        self.upscaler = upscaler  # function/callable
         self.config = Config()
 
     def txt2img(self, prompt, seed=None):
-        # Reset U-Net state if applicable
-
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
@@ -287,17 +309,15 @@ class ImageGenerator:
             generator=generator,
             width=self.config.width,
             height=self.config.height,
-            num_inference_steps=self.config.steps[0],  # Use first step value
+            num_inference_steps=int(self.config.steps[0]),
             guidance_scale=self.config.cfg,
             clip_skip=self.config.clip_skip,
         ).images
 
         self.config.current_seed = seed
-
         return images
 
     def upscale(self, images):
-
         return self.upscaler(
             images,
             model_name='RealESRGAN_x4plus',
@@ -307,36 +327,34 @@ class ImageGenerator:
         )
 
     def img2img(self, image, prompt, seed=None, for_hires=False):
-
         if image.size != (1024, 1024):
             print('Image must be 1024x1024 to avoid distortions...')
 
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
+        generator = torch.Generator(device=self.pipeline.device)
         if seed is None:
-            generator = torch.Generator(device=self.pipeline.device)
             seed = torch.seed()
             generator.manual_seed(seed)
             print(f'Seed: {seed}')
         else:
-            generator = torch.Generator(device=self.pipeline.device)
             generator.manual_seed(seed)
 
         num_images = self.config.num_imgs if not for_hires else 1
 
-        output = self.pipeline(  # Fixed incorrect `img2img_pipe`
+        output = self.pipeline(
             prompt_embeds=prompt[0][0:1],
             pooled_prompt_embeds=prompt[1][0:1],
             negative_prompt_embeds=prompt[0][1:2],
             negative_pooled_prompt_embeds=prompt[1][1:2],
-            num_inference_steps=self.config.steps[1],  # Second step value
+            num_inference_steps=int(self.config.steps[1]),
             image=image,
             width=self.config.width,
             height=self.config.height,
             num_images_per_prompt=num_images,
             generator=generator,
-            strength=self.config.strength,  # Fixed typo
+            strength=self.config.strength,
         ).images
         return output
 
@@ -344,7 +362,7 @@ class ImageGenerator:
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
-        if scale is not None:  # <-- fixed
+        if scale is not None:
             self.config.scale = scale
 
         first_pass_images = self.txt2img(prompt)
@@ -359,7 +377,6 @@ class ImageGenerator:
         self.config.width = int(self.config.width * self.config.scale)
         self.config.height = int(self.config.height * self.config.scale)
 
-        # Call your wrapper (or the function) consistently:
         upscaled_images = self.upscale(first_pass_images)
 
         seeds = [self.config.current_seed + n for n in range(len(upscaled_images))]
@@ -375,7 +392,6 @@ class ImageGenerator:
         return results
 
     def gfpgan(self, images, scale=None):
-
         if scale is None:
             scale = self.config.scale
         gfpgan_script = '/content/GFPGAN/inference_gfpgan.py'
@@ -396,8 +412,7 @@ class ImageGenerator:
                    "-s", str(scale),
                    ]
 
-        subprocess.run(process)
+        subprocess.run(process, check=False)
 
         outputs = [Image.open(output) for output in Path('/content/upscaled/restored_imgs').glob('*')]
-
         return outputs
