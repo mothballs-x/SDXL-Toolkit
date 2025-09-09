@@ -6,7 +6,7 @@ from compel import Compel, ReturnedEmbeddingsType
 import random
 import re
 
-# LoraManager
+# LoRA Manager
 import requests
 from pathlib import Path
 from PIL import Image
@@ -17,43 +17,71 @@ import torch
 
 
 # -----------------------------
-# Prompt Manager
+# Prompt Manager (GPU-only embeddings)
 # -----------------------------
 class PromptManager:
+    """
+    Builds SDXL prompt and negative prompt strings, then produces
+    (cond_embeds_batch, pooled_embeds_batch) with batch order [pos, neg],
+    entirely on the pipeline's device (GPU). No CPU/offload during encoding.
+    """
+
     pony_pos = 'score_9, score_8_up, score_7_up, score_6_up, rating_explicit'
     pony_neg = 'score_5, score_4, score_3, score_2, rating_safe'
 
-    def __init__(self, pipeline, initial_tags=None, pos_tokens=None, neg_tokens=None, df=None, pony=True):
+    def __init__(
+        self, pipeline,
+        initial_tags=None,
+        pos_tokens=None, neg_tokens=None,
+        df=None, pony=True
+    ):
         self.pipeline = pipeline
+
+        # Persisted tokens/options
         self.initial = initial_tags
-        self.pos_tokens = ', '.join(pos_tokens) if isinstance(pos_tokens, list) else pos_tokens
-        self.neg_tokens = ', '.join(neg_tokens) if isinstance(neg_tokens, list) else neg_tokens
+        pos_tokens = ', '.join(pos_tokens) if isinstance(pos_tokens, list) else pos_tokens
+        neg_tokens = ', '.join(neg_tokens) if isinstance(neg_tokens, list) else neg_tokens
+        self.pos_tokens = pos_tokens
+        self.neg_tokens = neg_tokens
         self.pony = pony
+
+        # Human-readable strings for last-built prompts (nice for UI)
         self.pos_prompt = ""
         self.neg_prompt = ""
+
+        # Optional DataFrame for random tags
         self.df = df
 
-        # Use the pipeline's device (you ensure pipe.to("cuda") elsewhere)
+        # Device & dtype policy: all on pipeline's device (GPU), no CPU hops
         self.device = getattr(pipeline, "device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        if self.device.type != "cuda":
+            raise RuntimeError(
+                f"PromptManager expects the pipeline to be on GPU, but got {self.device}. "
+                "Call `pipe.to('cuda')` before constructing PromptManager."
+            )
 
-        # Make sure both text encoders live on the same device as the pipeline
+        # Pin both text encoders to the pipeline device (no offloading)
         pipeline.text_encoder.to(self.device).eval()
         pipeline.text_encoder_2.to(self.device).eval()
-        self.enc_dtype = pipeline.text_encoder.dtype  # keep dtype in sync
 
-        # Compel on the same device as the encoders/pipeline
+        # Use the encoders' dtype (UNet will often be fp16 on GPU)
+        self.enc_dtype = getattr(pipeline.unet, "dtype", pipeline.text_encoder.dtype)
+
+        # Compel on the same device so token indices match encoder weights
         self.compel = Compel(
             tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
             text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True],
-            device=self.device,  # critical: make token ids match encoder weights
+            device=self.device,  # critical: generate token IDs on the same device
         )
 
     def randan(self, count=15, threshold=1):
+        """Return `count` tags with tag_number > threshold."""
         if self.df is None or len(self.df) == 0:
             return ""
         tags = []
+        # Prefer iloc to avoid surprises with non-integer index
         while len(tags) < count:
             x = random.randint(0, len(self.df) - 1)
             row = self.df.iloc[x]
@@ -63,18 +91,25 @@ class PromptManager:
                 tags.append(tag)
         return ', '.join(tags)
 
-    def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
-        # Build lists
+    def _build_prompt_strings(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
+        """Assemble positive/negative prompt strings from parts."""
         pos_parts, neg_parts = [], []
-        if self.pos_tokens: pos_parts.append(self.pos_tokens)
-        if self.neg_tokens: neg_parts.append(self.neg_tokens)
+
+        if self.pos_tokens:
+            pos_parts.append(self.pos_tokens)
+        if self.neg_tokens:
+            neg_parts.append(self.neg_tokens)
         if self.pony:
             pos_parts.append(self.pony_pos)
             neg_parts.append(self.pony_neg)
-        if self.initial: pos_parts.append(self.initial)
-        if main_pos: pos_parts.append(main_pos)
-        if main_neg: neg_parts.append(main_neg)
-        if rand_tags: pos_parts.append(self.randan())
+        if self.initial:
+            pos_parts.append(self.initial)
+        if main_pos:
+            pos_parts.append(main_pos)
+        if main_neg:
+            neg_parts.append(main_neg)
+        if rand_tags:
+            pos_parts.append(self.randan())
 
         # Clean and optionally shuffle
         pos_parts = [re.sub(r'\n', '', t) for t in pos_parts]
@@ -82,22 +117,39 @@ class PromptManager:
         if shuffle:
             random.shuffle(pos_parts)
 
-        # Persist strings (nice for UI)
+        # Persist strings (for UI/debug) and return
         self.pos_prompt = ", ".join([t for t in pos_parts if t])
         self.neg_prompt = ", ".join([t for t in neg_parts if t])
+        return self.pos_prompt or "", self.neg_prompt or ""
 
-        # -------- Conditional embeddings via Compel (on self.device) --------
-        # Batched order: [positive, negative]
-        prompt_embeds = self.compel([self.pos_prompt or "", self.neg_prompt or ""])
+    def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
+        """
+        Returns (cond_embeds_batch, pooled_embeds_batch), both on the pipeline device/dtype.
+        Batch order: [positive, negative].
+        """
+        pos_str, neg_str = self._build_prompt_strings(main_pos, main_neg, rand_tags, shuffle)
 
-        # -------- Pooled embeddings via encoder_2 (on same device) ----------
-        # Tokenize with tokenizer_2 and move tokens to the *actual* device of encoder_2
-        enc2 = self.compel.text_encoder[1]
-        enc2_dev = next(enc2.parameters()).device  # should equal self.device, but read it to be future-proof
-        tok2 = self.compel.tokenizer[1](
-            [self.pos_prompt or "", self.neg_prompt or ""],
+        # -------- Conditional embeddings via Compel (GPU) --------
+        # Some Compel versions may return either a single tensor or (cond, pooled).
+        cond_raw = self.compel([pos_str, neg_str])
+
+        if isinstance(cond_raw, (list, tuple)):
+            # If a tuple came back, first element must be conditional embeddings
+            cond = cond_raw[0]
+        else:
+            cond = cond_raw
+
+        # Ensure cond ends up exactly on pipeline device/dtype
+        cond = cond.to(self.device, dtype=self.enc_dtype)
+
+        # -------- Pooled embeddings via encoder_2 (GPU) ----------
+        enc2 = self.pipeline.text_encoder_2
+        enc2_dev = next(enc2.parameters()).device  # should be the same as self.device
+
+        tok2 = self.pipeline.tokenizer_2(
+            [pos_str, neg_str],
             padding="max_length",
-            max_length=self.compel.tokenizer[1].model_max_length,
+            max_length=self.pipeline.tokenizer_2.model_max_length,
             truncation=True,
             return_tensors="pt",
         )
@@ -109,24 +161,17 @@ class PromptManager:
                 attention_mask=tok2.get("attention_mask", None),
                 output_hidden_states=False,
             )
-        # Handle both CLIP variants
-        if hasattr(out2, "text_embeds"):       # CLIPTextModelWithProjection
-            pooled_embeds = out2.text_embeds
-        elif hasattr(out2, "pooler_output"):
-            pooled_embeds = out2.pooler_output
-        else:                                  # Fallback: CLS token
-            pooled_embeds = out2.last_hidden_state[:, 0, :]
 
-        # Ensure both tensors are exactly on the pipeline device/dtype
-        def _to(t):
-            if isinstance(t, (list, tuple)):
-                return [x.to(self.device, dtype=self.enc_dtype) for x in t]
-            return t.to(self.device, dtype=self.enc_dtype)
+        if hasattr(out2, "text_embeds"):            # CLIPTextModelWithProjection
+            pooled = out2.text_embeds
+        elif hasattr(out2, "pooler_output"):        # some variants
+            pooled = out2.pooler_output
+        else:                                       # Fallback: CLS token
+            pooled = out2.last_hidden_state[:, 0, :]
 
-        prompt_embeds = _to(prompt_embeds)
-        pooled_embeds = _to(pooled_embeds)
+        pooled = pooled.to(self.device, dtype=self.enc_dtype)
 
-        return (prompt_embeds, pooled_embeds)
+        return (cond, pooled)
 
 
 # -----------------------------
@@ -213,7 +258,7 @@ class LoraManager:
         self.update_weights()
 
     def get_lora_from_link(self, model_code: str, name: str):
-        """Download LoRAs from CivitAI and save as safetensors."""
+        """Download LoRA from CivitAI and save as safetensors."""
         lora_url = f"https://civitai.com/api/download/models/{model_code}?token={self.civitai_token}"
         with requests.get(lora_url, stream=True) as resp:
             if resp.status_code != 200:
@@ -266,6 +311,9 @@ class ImageGenerator:
         self.config = Config()
 
     def txt2img(self, prompt, seed=None):
+        """
+        Expects `prompt` to be a tuple: (cond_batch, pooled_batch), each with batch [pos, neg].
+        """
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
@@ -304,6 +352,9 @@ class ImageGenerator:
         )
 
     def img2img(self, image, prompt, seed=None, for_hires=False):
+        """
+        Expects `prompt` to be a tuple: (cond_batch, pooled_batch), each with batch [pos, neg].
+        """
         if image.size != (1024, 1024):
             print('Image must be 1024x1024 to avoid distortions...')
 
