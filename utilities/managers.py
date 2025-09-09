@@ -98,11 +98,30 @@ class PromptManager:
         self.pos_prompt = ", ".join([t for t in pos_parts if t])
         self.neg_prompt = ", ".join([t for t in neg_parts if t])
 
-        # Get both prompt and pooled embeddings for SDXL
-        prompt_embeds, pooled_embeds = self.compel(
+        self.pos_prompt = ", ".join([t for t in pos_parts if t])
+        self.neg_prompt = ", ".join([t for t in neg_parts if t])
+
+        # 1) Get SDXL prompt embeddings via Compel (pos+neg batched)
+        prompt_embeds = self.compel([self.pos_prompt or "", self.neg_prompt or ""])
+
+        # 2) Get pooled embeddings from the second CLIP encoder (version-agnostic)
+        tok2 = self.compel.tokenizer[1](
             [self.pos_prompt or "", self.neg_prompt or ""],
-            return_pooled=True
+            padding="max_length",
+            max_length=self.compel.tokenizer[1].model_max_length,
+            truncation=True,
+            return_tensors="pt",
         )
+        tok2 = {k: v.to(self.device) for k, v in tok2.items()}
+
+        with torch.no_grad():
+            enc2_out = self.compel.text_encoder[1](
+                tok2["input_ids"],
+                attention_mask=tok2.get("attention_mask", None),
+                output_hidden_states=False,
+            )
+            # CLIPTextModelWithProjection returns .pooler_output
+            pooled_embeds = enc2_out.pooler_output
 
         # Ensure tensors live on the same device/dtype as encoders
         def _to(x):
