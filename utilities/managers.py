@@ -23,64 +23,37 @@ class PromptManager:
     pony_pos = 'score_9, score_8_up, score_7_up, score_6_up, rating_explicit'
     pony_neg = 'score_5, score_4, score_3, score_2, rating_safe'
 
-    def __init__(
-        self, pipeline,
-        initial_tags=None,
-        pos_tokens=None, neg_tokens=None,
-        df=None, pony=True
-    ):
+    def __init__(self, pipeline, initial_tags=None, pos_tokens=None, neg_tokens=None, df=None, pony=True):
         self.pipeline = pipeline
-
-        # Persisted tokens/options
         self.initial = initial_tags
-        pos_tokens = ', '.join(pos_tokens) if isinstance(pos_tokens, list) else pos_tokens
-        neg_tokens = ', '.join(neg_tokens) if isinstance(neg_tokens, list) else neg_tokens
-        self.pos_tokens = pos_tokens
-        self.neg_tokens = neg_tokens
+        self.pos_tokens = ', '.join(pos_tokens) if isinstance(pos_tokens, list) else pos_tokens
+        self.neg_tokens = ', '.join(neg_tokens) if isinstance(neg_tokens, list) else neg_tokens
         self.pony = pony
-
-        # Human-readable strings for last-built prompts
-        self.prompt = ""
         self.pos_prompt = ""
         self.neg_prompt = ""
-
-        # Optional DataFrame for random tags
         self.df = df
 
-        # Where the UNet lives (usually cuda:0) and target dtype (half on GPU, float on CPU)
-        self.target_device = getattr(pipeline, "device",
-                                     torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-        self.target_dtype = getattr(getattr(pipeline, "unet", None), "dtype",
-                                    getattr(pipeline.text_encoder, "dtype", torch.float32))
+        # Use the pipeline's device (you ensure pipe.to("cuda") elsewhere)
+        self.device = getattr(pipeline, "device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
-        # --- Key design choice for robustness ---
-        # Always run BOTH text encoders on CPU for embedding creation.
-        # This avoids the notorious CPU/CUDA index mismatch inside torch.embedding()
-        # when Compel token indices are CPU but encoders get moved to CUDA by Accelerate.
-        pipeline.text_encoder.to("cpu")
-        pipeline.text_encoder_2.to("cpu")
+        # Make sure both text encoders live on the same device as the pipeline
+        pipeline.text_encoder.to(self.device).eval()
+        pipeline.text_encoder_2.to(self.device).eval()
+        self.enc_dtype = pipeline.text_encoder.dtype  # keep dtype in sync
 
-        # Build Compel WITHOUT device hints (older Compel versions ignore it anyway).
-        # It will use the provided encoders (now on CPU).
+        # Compel on the same device as the encoders/pipeline
         self.compel = Compel(
             tokenizer=[pipeline.tokenizer, pipeline.tokenizer_2],
             text_encoder=[pipeline.text_encoder, pipeline.text_encoder_2],
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True],
+            device=self.device,  # critical: make token ids match encoder weights
         )
 
-    def _move_to_target(self, x):
-        """Move tensor(s) to UNet device/dtype."""
-        if isinstance(x, (list, tuple)):
-            return [t.to(self.target_device, dtype=self.target_dtype) for t in x]
-        return x.to(self.target_device, dtype=self.target_dtype)
-
     def randan(self, count=15, threshold=1):
-        """Return `count` tags with tag_number > threshold."""
         if self.df is None or len(self.df) == 0:
             return ""
         tags = []
-        # Prefer iloc to avoid surprises with non-integer index
         while len(tags) < count:
             x = random.randint(0, len(self.df) - 1)
             row = self.df.iloc[x]
@@ -91,25 +64,17 @@ class PromptManager:
         return ', '.join(tags)
 
     def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
-        # Build local parts lists
-        pos_parts = []
-        neg_parts = []
-
-        if self.pos_tokens:
-            pos_parts.append(self.pos_tokens)
-        if self.neg_tokens:
-            neg_parts.append(self.neg_tokens)
+        # Build lists
+        pos_parts, neg_parts = [], []
+        if self.pos_tokens: pos_parts.append(self.pos_tokens)
+        if self.neg_tokens: neg_parts.append(self.neg_tokens)
         if self.pony:
             pos_parts.append(self.pony_pos)
             neg_parts.append(self.pony_neg)
-        if self.initial:
-            pos_parts.append(self.initial)
-        if main_pos:
-            pos_parts.append(main_pos)
-        if main_neg:
-            neg_parts.append(main_neg)
-        if rand_tags:
-            pos_parts.append(self.randan())
+        if self.initial: pos_parts.append(self.initial)
+        if main_pos: pos_parts.append(main_pos)
+        if main_neg: neg_parts.append(main_neg)
+        if rand_tags: pos_parts.append(self.randan())
 
         # Clean and optionally shuffle
         pos_parts = [re.sub(r'\n', '', t) for t in pos_parts]
@@ -117,14 +82,18 @@ class PromptManager:
         if shuffle:
             random.shuffle(pos_parts)
 
-        # Join -> persist on the instance
+        # Persist strings (nice for UI)
         self.pos_prompt = ", ".join([t for t in pos_parts if t])
         self.neg_prompt = ", ".join([t for t in neg_parts if t])
 
-        # 1) SDXL conditional embeddings via Compel (encoders on CPU => stable)
+        # -------- Conditional embeddings via Compel (on self.device) --------
+        # Batched order: [positive, negative]
         prompt_embeds = self.compel([self.pos_prompt or "", self.neg_prompt or ""])
 
-        # 2) SDXL pooled embeddings from the second CLIP encoder, also on CPU
+        # -------- Pooled embeddings via encoder_2 (on same device) ----------
+        # Tokenize with tokenizer_2 and move tokens to the *actual* device of encoder_2
+        enc2 = self.compel.text_encoder[1]
+        enc2_dev = next(enc2.parameters()).device  # should equal self.device, but read it to be future-proof
         tok2 = self.compel.tokenizer[1](
             [self.pos_prompt or "", self.neg_prompt or ""],
             padding="max_length",
@@ -132,22 +101,30 @@ class PromptManager:
             truncation=True,
             return_tensors="pt",
         )
-        # ensure token tensors are on the *actual* device of encoder_2 (CPU here)
-        enc2_dev = next(self.compel.text_encoder[1].parameters()).device
         tok2 = {k: v.to(enc2_dev) for k, v in tok2.items()}
 
         with torch.no_grad():
-            enc2_out = self.compel.text_encoder[1](
+            out2 = enc2(
                 tok2["input_ids"],
                 attention_mask=tok2.get("attention_mask", None),
                 output_hidden_states=False,
             )
-            # CLIPTextModelWithProjection returns .pooler_output
-            pooled_embeds = enc2_out.pooler_output
+        # Handle both CLIP variants
+        if hasattr(out2, "text_embeds"):       # CLIPTextModelWithProjection
+            pooled_embeds = out2.text_embeds
+        elif hasattr(out2, "pooler_output"):
+            pooled_embeds = out2.pooler_output
+        else:                                  # Fallback: CLS token
+            pooled_embeds = out2.last_hidden_state[:, 0, :]
 
-        # 3) Move both outputs to the UNet's device/dtype for generation
-        prompt_embeds = self._move_to_target(prompt_embeds)
-        pooled_embeds = self._move_to_target(pooled_embeds)
+        # Ensure both tensors are exactly on the pipeline device/dtype
+        def _to(t):
+            if isinstance(t, (list, tuple)):
+                return [x.to(self.device, dtype=self.enc_dtype) for x in t]
+            return t.to(self.device, dtype=self.enc_dtype)
+
+        prompt_embeds = _to(prompt_embeds)
+        pooled_embeds = _to(pooled_embeds)
 
         return (prompt_embeds, pooled_embeds)
 
