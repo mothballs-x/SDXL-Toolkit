@@ -173,6 +173,104 @@ class PromptManager:
 
         return (cond, pooled)
 
+    # --- Extended-prompt path (A1111-style prompt chunking) -------------------
+    def _chunk_by_tokens(self, text: str, tokenizer, max_len: int):
+        """Split `text` into chunks that each fit within `max_len` tokens for `tokenizer`.
+        Keeps delimiters so we don't smash words together.
+        """
+        import re as _re
+        parts = _re.split(r'(\s+|,)', text)
+        chunks, cur = [], []
+        for p in parts:
+            if p == '':
+                continue
+            tentative = ''.join(cur + [p])
+            ids = tokenizer([tentative], padding=False, truncation=False, return_tensors='pt')['input_ids']
+            if ids.shape[-1] <= max_len:
+                cur.append(p)
+            else:
+                if cur:
+                    chunks.append(''.join(cur).strip(', '))
+                    cur = [p]
+                else:
+                    chunks.append(p)
+                    cur = []
+        if cur:
+            chunks.append(''.join(cur).strip(', '))
+        return [c.strip() for c in chunks if c.strip()]
+
+    def _encode_chunks_compel(self, chunks):
+        """Encode a list of chunk strings with Compel and concatenate along seq_len."""
+        embeds = []
+        for ch in chunks:
+            e = self.compel([ch])
+            if isinstance(e, (list, tuple)):
+                e = e[0]
+            embeds.append(e.to(self.device, dtype=self.enc_dtype))
+        return torch.cat(embeds, dim=1) if len(embeds) > 1 else embeds[0]
+
+    def _pooled_for_chunks(self, chunks):
+        """Compute a pooled embedding for SDXL by averaging encoder_2 pooled outputs,
+        weighted by token counts per chunk.
+        """
+        tok2 = self.pipeline.tokenizer_2
+        enc2 = self.pipeline.text_encoder_2
+        enc2_dev = next(enc2.parameters()).device
+
+        pooled_sum = None
+        weight_sum = 0.0
+
+        for ch in chunks:
+            batch = tok2([ch], padding='max_length',
+                         max_length=tok2.model_max_length,
+                         truncation=True, return_tensors='pt')
+            batch = {k: v.to(enc2_dev) for k, v in batch.items()}
+            with torch.no_grad():
+                out2 = enc2(batch['input_ids'],
+                            attention_mask=batch.get('attention_mask', None),
+                            output_hidden_states=False)
+            if hasattr(out2, 'text_embeds'):
+                pooled = out2.text_embeds
+            elif hasattr(out2, 'pooler_output'):
+                pooled = out2.pooler_output
+            else:
+                pooled = out2.last_hidden_state[:, 0, :]
+
+            # approximate weight by true (untruncated) token length
+            true_ids = tok2([ch], padding=False, truncation=False, return_tensors='pt')['input_ids']
+            w = float(true_ids.shape[-1])
+            pooled = pooled.to(self.device, dtype=self.enc_dtype)
+            pooled_sum = pooled if pooled_sum is None else pooled_sum + w * pooled
+            weight_sum += w
+
+        return pooled_sum / max(weight_sum, 1.0)
+
+    def create_prompt_extended(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
+        """Build embeddings using prompt chunking (multi-pass encoding) so prompts
+        longer than the encoders' windows still contribute. Returns the same tuple
+        as `create_prompt`.
+        """
+        pos_str, neg_str = self._build_prompt_strings(main_pos, main_neg, rand_tags, shuffle)
+
+        # Chunk using the longer SDXL encoder as sizing reference
+        tok2 = self.pipeline.tokenizer_2
+        max_len = tok2.model_max_length
+
+        pos_chunks = self._chunk_by_tokens(pos_str, tok2, max_len) if pos_str else [""]
+        neg_chunks = self._chunk_by_tokens(neg_str, tok2, max_len) if neg_str else [""]
+
+        pos_cond = self._encode_chunks_compel(pos_chunks)
+        neg_cond = self._encode_chunks_compel(neg_chunks)
+
+        # Stack into batch order [pos, neg]
+        cond = torch.cat([pos_cond, neg_cond], dim=0).to(self.device, dtype=self.enc_dtype)
+
+        # Pooled embeddings from encoder_2 (weighted average across chunks)
+        pos_pooled = self._pooled_for_chunks(pos_chunks)
+        neg_pooled = self._pooled_for_chunks(neg_chunks)
+        pooled = torch.cat([pos_pooled, neg_pooled], dim=0)
+
+        return (cond, pooled)
 
 # -----------------------------
 # LoRA Manager
