@@ -50,17 +50,14 @@ class PromptManager:
         )
 
     def randan(self, count=15, threshold=1):
-        """Return 'count tags with tag_number > threshold"""
+        """Return `count` tags with tag_number > threshold."""
         if self.df is None or len(self.df) == 0:
-            return ''
-
-        tags = []
-
-        # Prefer iloc to avoid surprises with non-int index
-        while len(tags) < count:  # Ensure we always get "count" valid tags
-            x = random.randint(0, len(self.df) - 1)  # ✅ Avoid out-of-bounds indexing
-            row = self.df.iloc[x]
-            tag = re.sub(r'_', ' ', str(row[[0]]))
+            return ""
+        tags = []  # Prefer iloc to avoid surprises with non-integer index
+        while len(tags) < count:
+            x = random.randint(0, len(self.df) - 1)
+            row = self.df.iloc[x]  # <-- was loc[x]
+            tag = re.sub(r'_', ' ', str(row[0]))
             tag_number = float(row[1])
             if tag_number > threshold:
                 tags.append(tag)
