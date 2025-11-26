@@ -1,7 +1,6 @@
 import subprocess
 from typing import Union
 
-import numpy as np
 # PromptManager Imports
 from compel import Compel, ReturnedEmbeddingsType
 import random
@@ -51,19 +50,21 @@ class PromptManager:
         )
 
     def randan(self, count=15, threshold=1):
+        """Return 'count tags with tag_number > threshold"""
+        if self.df is None or len(self.df) == 0:
+            return ''
+
         tags = []
 
+        # Prefer iloc to avoid surprises with non-int index
         while len(tags) < count:  # Ensure we always get "count" valid tags
             x = random.randint(0, len(self.df) - 1)  # ✅ Avoid out-of-bounds indexing
-
-            tag, tag_number = self.df.loc[x].values
-            tag = re.sub(r'_', ' ', tag)
-
-            if tag_number > threshold:  # ✅ Drop tags that don't meet the threshold
+            row = self.df.iloc[x]
+            tag = re.sub(r'_', ' ', str(row[[0]]))
+            tag_number = float(row[1])
+            if tag_number > threshold:
                 tags.append(tag)
-            # print(tag, end=', ')  # ✅ Shows selected tags in real-time
 
-            # print('\n')
         return ', '.join(tags)
 
     def create_prompt(self, main_pos=None, main_neg=None, rand_tags=False, shuffle=False):
@@ -156,17 +157,23 @@ class LoraManager:
 
     def delete_lora(self, names: Union[str, list]):
         """Remove a LoRA from the manager"""
-        if not (isinstance(names, list) or isinstance(names, str)):
-            raise TypeError("Names must be a string or a list of strings")
         if isinstance(names, str):
             names = [names]
+        elif not isinstance(names, list):
+            raise TypeError("Names must be a string or a list of strings")
+
+        # Remove adapters from pipeline
         self.pipeline.delete_adapters(names)
+
+        # clean internal map
         for name in names:
             if name in self.loras:
                 del self.loras[name]
-                self.update_weights()
             else:
                 print(f"[Warning] LoRA '{name}' not found.")
+
+        # Re-apply weights for remaining loras
+        self.update_weights()
 
     def list_loras(self):
         """Return all available LoRAs"""
@@ -223,7 +230,7 @@ class Config:
 class ImageGenerator:
     def __init__(self, pipeline, upscaler):
         self.pipeline = pipeline
-        self.upscale = upscaler  # Fixed incorrect reference
+        self.upscaler = upscaler  # Fixed incorrect reference
         self.config = Config()
 
     def txt2img(self, prompt, seed=None):
@@ -260,7 +267,7 @@ class ImageGenerator:
 
     def upscale(self, images):
 
-        return self.upscale(
+        return self.upscaler(
             images,
             model_name='RealESRGAN_x4plus',
             scale_factor=self.config.scale,
@@ -306,7 +313,8 @@ class ImageGenerator:
         if not isinstance(prompt, tuple):
             raise TypeError('Prompt must be a tuple of conditional and pooled embeddings')
 
-        if scale is None:
+        # Only overwrite scale if caller actually passed one
+        if scale is not None:
             self.config.scale = scale
 
         first_pass_images = self.txt2img(prompt)
@@ -319,7 +327,7 @@ class ImageGenerator:
         self.config.width = int(self.config.width * self.config.scale)  # Fixed missing SCALE
         self.config.height = int(self.config.height * self.config.scale)
 
-        upscaled_images = self.upscale(first_pass_images, scale=self.config.scale)
+        upscaled_images = self.upscale(first_pass_images)
 
         seeds = [self.config.current_seed + n for n in range(len(upscaled_images))]
 
